@@ -275,20 +275,10 @@ configuration_strip* parse_strip(cJSON* json, int ups, float lerp, int fps) {
     if (strcmp(type->valuestring, "rpi") == 0) {
         strip->type = CONFIGURATION_TYPE_RPI;
         GET_VAL(json, "port", strip, port, valueint);
-        strip->fd = create_rpi(strip, ups, lerp);
     } else if (strcmp(type->valuestring, "arduino") == 0) {
         strip->type = CONFIGURATION_TYPE_ARDUINO;
-        strip->fd = create_arduino(strip, ups, lerp);
     } else {
         log_trace("CONFIGURATION", "cJSON_GetObjectItem() failed: Invalid type");
-
-        free(strip->addr);
-        free(strip);
-        return NULL;
-    }
-
-    if (strip->fd < 0) {
-        log_trace("CONFIGURATION", "create_%s() failed", type->valuestring);
 
         free(strip->addr);
         free(strip);
@@ -341,6 +331,22 @@ configuration_strip* parse_strip(cJSON* json, int ups, float lerp, int fps) {
 
     log_debug("CONFIGURATION", "Strip parsed successfully (addr: %s)", strip->addr);
     return strip;
+}
+
+void init_strip(configuration_strip* strip, int ups, float lerp) {
+    // initialize strip
+    if (strip->type == CONFIGURATION_TYPE_RPI) {
+        strip->fd = create_rpi(strip, ups, lerp);
+    } else {
+        strip->fd = create_arduino(strip, ups, lerp);
+    }
+
+    if (strip->fd < 0) {
+        log_trace("CONFIGURATION", "create_%s() failed", strip->type == CONFIGURATION_TYPE_RPI ? "rpi" : "arduino");
+
+        free(strip->addr);
+        free(strip);
+    }
 }
 
 /**
@@ -419,6 +425,12 @@ configuration_data* configuration_parse() {
 
         cJSON_Delete(json);
         return NULL;
+    }
+
+    // connect to controllers
+    for (int i = 0; i < data->num_strips; i++) {
+        configuration_strip* strip = data->strips[i];
+        init_strip(strip, data->ups, data->lerp);
     }
 
     cJSON_Delete(json);
