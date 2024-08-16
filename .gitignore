@@ -1,2 +1,9 @@
-.vscode/
-/target
+# ide
+.vscode
+
+# rust
+target
+Cargo.lock
+
+# project
+shaders
