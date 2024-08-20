@@ -4,6 +4,3 @@
 # rust
 target
 Cargo.lock
-
-# project
-shaders
