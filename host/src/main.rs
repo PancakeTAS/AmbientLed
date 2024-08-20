@@ -5,6 +5,8 @@ mod renderer;
 mod connector;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    colog::init();
+
     // initialize the connector
     let mut connector = connector::Connector::new();
 
@@ -41,8 +43,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut renderer = renderer::RenderPipeline::new(client.get_display_id())?;
 
     // set the render textures
-    renderer.set_texture(1, session1.get_dmabuf()?)?;
-    renderer.set_texture(2, session2.get_dmabuf()?)?;
+    renderer.set_texture(1, session1.get_dmabuf().unwrap())?;
+    renderer.set_texture(2, session2.get_dmabuf().unwrap())?;
 
     // set the shader
     renderer.set_shader(1, &[1], strip1_len as u32, 1, &PathBuf::from("shaders/basic_vertex.glsl"), &PathBuf::from("shaders/basic_fragment.glsl"))?;

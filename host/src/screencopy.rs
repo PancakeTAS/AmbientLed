@@ -1,6 +1,8 @@
 use std::{collections::HashMap, fs::File, os::fd::{AsRawFd, BorrowedFd}};
 
-use gbm::BufferObjectFlags;
+use anyhow::{anyhow, Context};
+use gbm::{BufferObject, BufferObjectFlags, Device};
+use log::{debug, trace};
 use wayland_client::{backend::ObjectId, event_created_child, protocol::{wl_buffer::WlBuffer, wl_output::{self, WlOutput}, wl_registry::{self}}, Connection, Dispatch, Proxy, QueueHandle};
 use wayland_protocols::wp::linux_dmabuf::zv1::client::{zwp_linux_buffer_params_v1::{self, Flags, ZwpLinuxBufferParamsV1}, zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1};
 use wayland_protocols_wlr::screencopy::v1::client::{zwlr_screencopy_frame_v1::{self, ZwlrScreencopyFrameV1}, zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1};
@@ -18,9 +20,7 @@ pub struct OutputInfo {
 }
 
 impl OutputInfo {
-    fn default() -> Self {
-        OutputInfo { name: None, description: None, mode: None }
-    }
+    fn default() -> Self { Self { name: None, description: None, mode: None } }
 }
 
 ///
@@ -31,7 +31,7 @@ impl OutputInfo {
 ///
 pub struct Client {
     wl: Connection,
-    gbm: gbm::Device<File>,
+    gbm: Device<File>,
 
     // wayland objects
     pub outputs: HashMap<WlOutput, OutputInfo>,
@@ -44,11 +44,24 @@ pub struct Client {
 impl Client {
 
     ///
-    /// Create a new Client
+    /// Create a new screencopy Client
     ///
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        let wl = Connection::connect_to_env()?;
-        let gbm = gbm::Device::new(File::open("/dev/dri/renderD128")?)?;
+    /// This will create a gbm device as well as a wayland connection and populate the wayland registry and outputs.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the drm device cannot be opened, the gbm device cannot be created,
+    /// the wayland connection cannot be established, the required protocols are not present or if the registry roundtrip fails.
+    ///
+    pub fn new() -> Result<Self, anyhow::Error> {
+        // create the gbm device
+        let drm_device = File::open("/dev/dri/renderD128").context("failed to open drm device")?;
+        let gbm = Device::new(drm_device).context("failed to create gbm device")?;
+        debug!("created gbm device: {:?}", "/dev/dri/renderD128");
+
+        // create the wayland connection
+        let wl = Connection::connect_to_env().context("failed to connect to wayland server")?;
+        debug!("connected to wayland server: {:?}", std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".to_string()));
 
         let mut eq = wl.new_event_queue();
         wl.display().get_registry(&eq.handle(), ());
@@ -59,16 +72,17 @@ impl Client {
             wlr_screencopy_manager: None, wp_linux_dmabuf: None
         };
 
-        eq.blocking_dispatch(&mut state)?;
-        eq.blocking_dispatch(&mut state)?; // fetch outputs after populating registry
+        eq.blocking_dispatch(&mut state).context("failed to complete registry roundtrip")?;
+        eq.blocking_dispatch(&mut state).context("failed to complete output infos roundtrip")?; // fetch outputs after populating registry
+        debug!("populated wayland registry and discovered {} outputs", state.outputs.len());
 
         // ensure required globals are present
         if state.wlr_screencopy_manager.is_none() {
-            return Err("screencopy manager not found".into());
+            return Err(anyhow!("no ZwlrScreencopyManagerV1 protocol"));
         }
 
         if state.wp_linux_dmabuf.is_none() {
-            return Err("linux dmabuf not found".into());
+            return Err(anyhow!("no ZwpLinuxDmabufV1 protocol"));
         }
 
         Ok(state)
@@ -85,6 +99,7 @@ impl Client {
 
 impl Drop for Client {
     fn drop(&mut self) {
+        debug!("closing screencopy client, this will disconnect from the wayland server and destroy the gbm device");
         if let Some(wlr_screencopy_manager) = self.wlr_screencopy_manager.as_mut() {
             wlr_screencopy_manager.destroy();
         }
@@ -101,12 +116,17 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Client {
     fn event(state: &mut Self, registry: &wl_registry::WlRegistry, event: wl_registry::Event, _: &(), _: &Connection, eq_handle: &QueueHandle<Client>) {
         if let wl_registry::Event::Global { name, interface, version } = event {
             if interface == WlOutput::interface().name {
+                debug!("found output global");
                 state.outputs.insert(registry.bind::<WlOutput, _, _>(name, version, eq_handle, ()), OutputInfo::default());
             } else if interface == ZwlrScreencopyManagerV1::interface().name {
+                debug!("found screencopy manager global");
                 state.wlr_screencopy_manager = Some(registry.bind::<ZwlrScreencopyManagerV1, _, _>(name, version, eq_handle, ()));
             } else if interface == ZwpLinuxDmabufV1::interface().name {
+                debug!("found linux dmabuf global");
                 state.wp_linux_dmabuf = Some(registry.bind::<ZwpLinuxDmabufV1, _, _>(name, version, eq_handle, ()));
             }
+
+            trace!("new global: name={} interface={} version={}", name, interface, version);
         }
     }
 }
@@ -121,8 +141,12 @@ impl Dispatch<wl_output::WlOutput, ()> for Client {
                 wl_output::Event::Name { name } => info.name = Some(name),
                 wl_output::Event::Description { description } => info.description = Some(description),
                 wl_output::Event::Mode { width, height, refresh, .. } => info.mode = Some((width, height, refresh)),
-                _ => { }
+                wl_output::Event::Done { .. } => {
+                    trace!("updated output: name={:?} description={:?} mode={:?}", info.name, info.description, info.mode);
+                 },
+                _ => {}
             }
+
         }
     }
 }
@@ -146,7 +170,7 @@ pub struct CaptureSession {
     requested_dmabuf_params: Option<(u32, u32, u32)>, // fourcc, width, height
     screencopy_frame: Option<ZwlrScreencopyFrameV1>,
     linux_buffer_params: Option<ZwpLinuxBufferParamsV1>,
-    buffer_object: Option<gbm::BufferObject<()>>,
+    buffer_object: Option<BufferObject<()>>,
     buffer: Option<WlBuffer>,
 
     fail: bool, // if any of the dispatches failed
@@ -155,6 +179,20 @@ pub struct CaptureSession {
 }
 
 impl CaptureSession {
+
+    ///
+    /// Create a new capture session
+    ///
+    /// Please note that the capture coordinates use scaled coordinates, not pixels. The resulting buffer might differ in size.
+    ///
+    /// # Arguments
+    ///
+    /// * `output` - The output to capture
+    /// * `x` - The x position to capture
+    /// * `y` - The y position to capture
+    /// * `width` - The width to capture
+    /// * `height` - The height to capture
+    ///
     pub fn new(output: WlOutput, x: i32, y: i32, width: i32, height: i32) -> Self {
         CaptureSession {
             requested_dmabuf_params: None, screencopy_frame: None, linux_buffer_params: None, buffer_object: None, buffer: None,
@@ -163,13 +201,20 @@ impl CaptureSession {
         }
     }
 
-    pub fn get_dmabuf(&self) -> Result<&gbm::BufferObject<()>, &'static str> {
-        self.buffer_object.as_ref().ok_or("no buffer object found")
+    ///
+    /// Get the dmabuf buffer
+    ///
+    /// Ensure a buffer is present by calling capture first.
+    ///
+    pub fn get_dmabuf(&self) -> Option<&BufferObject<()>> {
+        self.buffer_object.as_ref()
     }
+
 }
 
 impl Drop for CaptureSession {
     fn drop(&mut self) {
+        debug!("dropping capture session, this will destroy the dmabuf buffer and the screencopy frame");
         if let Some(ref screencopy_frame) = self.screencopy_frame {
             screencopy_frame.destroy();
         }
@@ -189,93 +234,83 @@ impl Client {
     ///
     /// You may reuse the same session for multiple captures to skip the dmabuf creation.
     ///
-    pub fn capture(&mut self, session: &mut CaptureSession) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn capture(&mut self, session: &mut CaptureSession) -> Result<(), anyhow::Error> {
         if session.fail {
-            return Err("session is marked as failed".into());
+            return Err(anyhow!("session is marked as failed"));
         }
 
         let mut eq = self.wl.new_event_queue::<CaptureSession>();
         let output = &session.output;
-        let skip_dmabuf =
-            if session.requested_dmabuf_params.is_none()
-                || session.screencopy_frame.is_none()
-                || session.linux_buffer_params.is_none()
-                || session.buffer_object.is_none()
-                || session.buffer.is_none() {
-                false
-            } else {
-                session.screencopy_frame.as_mut().unwrap().destroy();
-                session.screencopy_frame = None;
-                true
-            };
+        let output_id = output.id().protocol_id();
+        let skip_dmabuf = session.buffer.is_some();
+
+        // reset the session if we are skipping dmabuf
+        if skip_dmabuf {
+            trace!("skipping dmabuf creation for capture");
+            session.screencopy_frame.as_mut().unwrap().destroy();
+            session.screencopy_frame = None;
+        }
 
         // get the required protocols
-        let screencopy_mgmt = self.wlr_screencopy_manager.as_ref().ok_or("no screencopy manager found")?;
-        let dmabuf_mgmt: &ZwpLinuxDmabufV1 = self.wp_linux_dmabuf.as_ref().ok_or("no linux dmabuf found")?;
+        let screencopy_mgmt = self.wlr_screencopy_manager.as_ref().unwrap();
+        let dmabuf_mgmt = self.wp_linux_dmabuf.as_ref().unwrap();
 
         // request output capture
         screencopy_mgmt.capture_output_region::<(), _>(0, output, session.x, session.y, session.width, session.height, &eq.handle(), ());
-        eq.blocking_dispatch(session)?; // this will wait for the dispatches to finish
-
-        let screencopy_frame = match &session.screencopy_frame {
-            Some(frame) => frame.clone(),
-            None => return Err("no screencopy frame found".into())
-        };
-
-        let (fourcc, width, height) = match session.requested_dmabuf_params {
-            Some(params) => params,
-            None => return Err("dmabuf capture not supported".into())
-        };
+        eq.blocking_dispatch(session).context("create output capture roundtrip failed")?; // this will wait for the dispatches to finish
 
         if session.fail {
-            return Err("failed to capture output".into());
+            return Err(anyhow!("failed to create output capture"));
         }
+
+        let screencopy_frame = session.screencopy_frame.as_ref().unwrap().clone();
+        let (fourcc, width, height) = session.requested_dmabuf_params.context("dmabuf capture not supported")?;
+        trace!("created output capture with id {} for region {}x{}+{}+{} on {:?}", screencopy_frame.id().protocol_id(), session.width, session.height, session.x, session.y, output_id);
 
         // create buffer
         let buffer =
             if !skip_dmabuf {
-                let bo = self.gbm.create_buffer_object::<()>(width, height, gbm::Format::try_from(fourcc)?, BufferObjectFlags::RENDERING)?;
+                let bo = self.gbm.create_buffer_object::<()>(width, height, gbm::Format::try_from(fourcc).unwrap(), BufferObjectFlags::RENDERING)
+                    .context("failed to create buffer object")?;
+                debug!("allocated dmabuf with format {} and size {}x{}", fourcc, width, height);
 
                 let linux_buffer_params = dmabuf_mgmt.create_params(&eq.handle(), ());
                 unsafe {
-                    let modifiers: u64 = bo.modifier()?.into();
+                    let modifiers: u64 = bo.modifier().unwrap().into();
                     linux_buffer_params.add(
-                        BorrowedFd::borrow_raw(bo.fd_for_plane(0)?.as_raw_fd()),
+                        BorrowedFd::borrow_raw(bo.fd_for_plane(0).unwrap().as_raw_fd()),
                         0,
-                        bo.offset(0)?,
-                        bo.stride_for_plane(0)?,
+                        bo.offset(0).unwrap(),
+                        bo.stride_for_plane(0).unwrap(),
                         (modifiers >> 32) as u32, modifiers as u32
                     );
                 }
 
                 // request wl_buffer
                 linux_buffer_params.create(width as i32, height as i32, fourcc, Flags::empty());
-                eq.blocking_dispatch(session)?;
-
-                session.linux_buffer_params = Some(linux_buffer_params);
-                session.buffer_object = Some(bo);
-                let buffer = match &session.buffer {
-                    Some(buffer) => buffer,
-                    None => return Err("unexpected error: no buffer created".into())
-                };
+                eq.blocking_dispatch(session).context("create wl buffer roundtrip failed")?;
 
                 if session.fail {
-                    return Err("failed to create buffer".into());
+                    return Err(anyhow!("failed to create wl buffer"));
                 }
 
-                buffer
+                debug!("created wl buffer {}", session.buffer.as_ref().unwrap().id().protocol_id());
+                session.linux_buffer_params = Some(linux_buffer_params);
+                session.buffer_object = Some(bo);
+                session.buffer.as_mut().unwrap()
             } else {
-                &session.buffer.as_mut().unwrap()
+                session.buffer.as_mut().unwrap()
             };
 
         // copy the buffer
         screencopy_frame.copy(buffer);
-        eq.blocking_dispatch(session)?; // wait for the copy to finish
+        eq.blocking_dispatch(session).context("copy frame roundtrip failed")?; // this will wait for the dispatches to finish
 
         if session.fail {
-            return Err("copy failed".into());
+            return Err(anyhow!("copy failed"));
         }
 
+        trace!("frame copied to buffer {}", session.buffer.as_ref().unwrap().id().protocol_id());
         Ok(())
     }
 
@@ -316,6 +351,8 @@ impl Dispatch<ZwpLinuxBufferParamsV1, ()> for CaptureSession {
     fn event(state: &mut Self, _: &ZwpLinuxBufferParamsV1, event: <ZwpLinuxBufferParamsV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         if let zwp_linux_buffer_params_v1::Event::Created { buffer } = event {
             state.buffer = Some(buffer);
+        } else if let zwp_linux_buffer_params_v1::Event::Failed { } = event {
+            state.fail = true;
         }
     }
 }
