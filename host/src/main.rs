@@ -1,66 +1,60 @@
 use std::path::PathBuf;
 
+mod screencopy;
+mod renderer;
 mod connector;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // create the connector struct
+    // initialize the connector
     let mut connector = connector::Connector::new();
 
     // create a device with two physical led strips with lengths 88 and 91
-    let leonardo = connector::device::Device::new(&PathBuf::from("/dev/ttyACM1"), 1000000, vec![88, 91])?;
+    let leonardo = connector::device::Device::new(&PathBuf::from("/dev/ttyACM0"), 1000000, vec![88, 91])?;
     connector.add_device(1, leonardo);
 
-    // create a virtual led strip with length (88+91)-40 containing the center of the two physical led strips
-    let mut strip = connector::strip::Strip::new(88+91-40);
-    strip.map(connector::strip::Mapping::new(1, 0, 10, 88 - 20));
-    strip.map(connector::strip::Mapping::new(1, 1, 10, 91 - 20));
-    connector.add_strip(0, strip);
+    // create a virtual led strip for the top strip
+    let mut strip1 = connector::strip::Strip::new(88);
+    strip1.map(connector::strip::Mapping::new(1, 0, 0, 88));
+    connector.add_strip(1, strip1);
 
     // create the remaining virtual led strip
-    let mut strip = connector::strip::Strip::new(40);
-    strip.map(connector::strip::Mapping::new(1, 0, 0, 10));
-    strip.map(connector::strip::Mapping::new(1, 0, 88 - 10, 10));
-    strip.map(connector::strip::Mapping::new(1, 1, 0, 10));
-    strip.map(connector::strip::Mapping::new(1, 1, 91 - 10, 10));
-    connector.add_strip(1, strip);
+    let mut strip2 = connector::strip::Strip::new(91);
+    strip2.map(connector::strip::Mapping::new(1, 1, 0, 91));
+    connector.add_strip(2, strip2);
 
-    // fill the first virtual led strip with red
-    let data = connector.mutate_strip(0)?;
-    for i in (0..data.len()).step_by(3) {
-        data[i] = 255;     // Red
-        data[i + 1] = 0;   // Green
-        data[i + 2] = 0;   // Blue
-    }
+    // initialize the screencopy
+    let mut client = screencopy::Client::new()?;
+    let primary_output = client.outputs.iter().find(|output| output.1.name.as_ref().unwrap() == "DP-3").ok_or("No primary output found")?;
 
-    // fill the second virtual led strip with green
-    let data = connector.mutate_strip(1)?;
-    for i in (0..data.len()).step_by(3) {
-        data[i] = 0;       // Red
-        data[i + 1] = 255; // Green
-        data[i + 2] = 0;   // Blue
-    }
+    // create the capture sessions
+    let scaling_factor = 1.25;
+    let mut session1 = screencopy::CaptureSession::new(primary_output.0.clone(), 0, 0, (2560.0 / scaling_factor) as i32, (150.0 / scaling_factor) as i32);
+    let mut session2 = screencopy::CaptureSession::new(primary_output.0.clone(), 0, ((1440.0 - 150.0) / scaling_factor) as i32, (2560.0 / scaling_factor) as i32, (150.0 / scaling_factor) as i32);
+    client.capture(&mut session1)?;
+    client.capture(&mut session2)?;
 
-    // write the data to the devices
+    // initialize the renderer
+    let mut renderer = renderer::RenderPipeline::new(client.get_display_id())?;
+
+    // set the render textures
+    renderer.set_texture(1, session1.get_dmabuf()?)?;
+    renderer.set_texture(2, session2.get_dmabuf()?)?;
+
+    // set the shader
+    renderer.set_shader(1, &[1], 88, 1, &PathBuf::from("shaders/vertex.glsl"), &PathBuf::from("shaders/fragment.glsl"))?;
+    renderer.set_shader(2, &[2], 91, 1, &PathBuf::from("shaders/vertex.glsl"), &PathBuf::from("shaders/fragment.glsl"))?;
+
+    // start the render loop
     loop {
+        // capture the screen
+        client.capture(&mut session1)?;
+        client.capture(&mut session2)?;
+
+        // render the strips
+        renderer.render(1, connector.mutate_strip(1)?);
+        renderer.render(2, connector.mutate_strip(2)?);
+
+        // send the data to the devices
         connector.write()?;
-
-        std::thread::sleep(std::time::Duration::from_secs(1));
     }
-
-    // create a virtual led strip with length 88+91 mapped to the device
-    /*let mut strip = connector::strip::Strip::new(88+91);
-    strip.map(connector::strip::Mapping::new(1, 0, 0, 88));
-    strip.map(connector::strip::Mapping::new(1, 1, 0, 91));
-    connector.add_strip(0, strip);
-
-    // write all white to the virtual led strip
-    let data = connector.mutate_strip(0)?;
-    for i in (0..data.len()).step_by(3) {
-        data[i] = 255;     // Red
-        data[i + 1] = 0;   // Green
-        data[i + 2] = 0;   // Blue
-    }
-    connector.write()?;*/
-
-    Ok(())
 }
