@@ -1,0 +1,14 @@
+[package]
+name = "ambient-led"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wayland-client = { version = "0.31.5", features = ["log"] }
+wayland-egl = "0.32.3"
+wayland-protocols = { version = "0.32.3", features = ["unstable", "client"] }
+wayland-protocols-wlr = { version = "0.3.3", features = ["client"] }
+gbm = { version = "0.15.0" }
+egls = { version = "0.1.7" }
+gl = { version = "0.14.0" }
+serial2 = { version = "0.2.26" }
