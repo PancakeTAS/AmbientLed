@@ -5,7 +5,9 @@ mod renderer;
 mod connector;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    colog::init();
+    colog::default_builder()
+        .filter_level(log::LevelFilter::Trace)
+        .init();
 
     // initialize the connector
     let mut connector = connector::Connector::new();

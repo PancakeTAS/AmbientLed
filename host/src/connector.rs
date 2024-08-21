@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
+use anyhow::Context;
 use device::Device;
+use log::trace;
 use strip::Strip;
 
 pub mod device;
@@ -53,24 +55,35 @@ impl Connector {
     ///
     /// * `id` - Id of the strip
     ///
-    pub fn mutate_strip(&mut self, id: u64) -> Result<&mut [u8], Box<dyn std::error::Error>> {
-        Ok(self.strips.get_mut(&id).ok_or("strip not found")?.get_mut())
+    /// # Errors
+    ///
+    /// This function returns an error if the strip is not found
+    ///
+    pub fn mutate_strip(&mut self, id: u64) -> Result<&mut [u8], anyhow::Error> {
+        Ok(self.strips.get_mut(&id).context("strip not found")?.get_mut())
     }
 
     ///
     /// Write all strips to the devices
     ///
-    pub fn write(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    /// # Errors
+    ///
+    /// This function returns an error if any of the strips or devices fail to write
+    ///
+    pub fn write(&mut self) -> Result<(), anyhow::Error> {
         // copy all virtual led strips to the devices
-        for strip in self.strips.values_mut() {
-            strip.write(&mut self.devices)?;
+        for (id, strip) in &self.strips {
+            strip.write(&mut self.devices).context("failed to write strip")?;
+            trace!("copied virtual strip {} to physical strips", id);
         }
 
         // write all devices
-        for device in self.devices.values_mut() {
-            device.write()?;
+        for (id, device) in &mut self.devices {
+            device.write().context("failed to write device")?;
+            trace!("wrote device {}", id);
         }
 
+        trace!("finished writing all devices");
         Ok(())
     }
 

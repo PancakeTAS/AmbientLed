@@ -1,12 +1,14 @@
-use std::{error::Error, path::PathBuf};
+use std::{io, path::PathBuf};
 
+use anyhow::Context;
+use log::debug;
 use serial2::SerialPort;
 
 ///
 /// Serial device
 ///
 pub struct Device {
-    port: SerialPort,
+    serial: SerialPort,
     buffer: Vec<u8>,
     lengths: Vec<u16>
 }
@@ -22,9 +24,16 @@ impl Device {
     /// * `baud_rate` - Baud rate
     /// * `lengths` - Amount of leds per strip connected to this device
     ///
-    pub fn new(port: &PathBuf, baud_rate: u32, lengths: Vec<u16>) -> Result<Self, Box<dyn Error>> {
+    /// # Errors
+    ///
+    /// This function returns an error if the serial port could not be opened
+    ///
+    pub fn new(port: &PathBuf, baud_rate: u32, lengths: Vec<u16>) -> Result<Self, anyhow::Error> {
+        let serial = SerialPort::open(port, baud_rate).context("failed to open serial port")?;
+        debug!("opened serial port {:?}", port);
+
         Ok(Self {
-            port: SerialPort::open(port, baud_rate)?,
+            serial,
             buffer: vec![0; lengths.iter().sum::<u16>() as usize * 3],
             lengths,
         })
@@ -47,9 +56,13 @@ impl Device {
     ///
     /// Write the data to the serial port
     ///
-    pub(super) fn write(&self) -> Result<(), Box<dyn Error>> {
-        self.port.write_all(&self.buffer)?;
-        self.port.flush()?;
+    /// # Errors
+    ///
+    /// This function returns an error if the data could not be written or flushed to the serial port
+    ///
+    pub(super) fn write(&self) -> Result<(), io::Error> {
+        self.serial.write_all(&self.buffer)?;
+        self.serial.flush()?;
         Ok(())
     }
 
