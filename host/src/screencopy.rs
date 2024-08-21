@@ -24,12 +24,12 @@ impl OutputInfo {
 }
 
 ///
-/// # Client
+/// # Screencopy
 ///
-/// The client struct is the main entry point for the screencopy module. It holds the wayland connection and the gbm device.
+/// The screencopy struct is the main entry point for the screencopy module. It holds the wayland connection and the gbm device.
 /// It also holds the outputs and the required protocols.
 ///
-pub struct Client {
+pub struct Screencopy {
     wl: Connection,
     gbm: Device<File>,
 
@@ -41,10 +41,10 @@ pub struct Client {
     wp_linux_dmabuf: Option<ZwpLinuxDmabufV1>
 }
 
-impl Client {
+impl Screencopy {
 
     ///
-    /// Create a new screencopy Client
+    /// Create a new Screencopy
     ///
     /// This will create a gbm device as well as a wayland connection and populate the wayland registry and outputs.
     ///
@@ -66,7 +66,7 @@ impl Client {
         let mut eq = wl.new_event_queue();
         wl.display().get_registry(&eq.handle(), ());
 
-        let mut state = Client {
+        let mut state = Screencopy {
             wl, gbm,
             outputs: HashMap::new(),
             wlr_screencopy_manager: None, wp_linux_dmabuf: None
@@ -97,9 +97,9 @@ impl Client {
 
 }
 
-impl Drop for Client {
+impl Drop for Screencopy {
     fn drop(&mut self) {
-        debug!("closing screencopy client, this will disconnect from the wayland server and destroy the gbm device");
+        debug!("closing Screencopy, this will disconnect from the wayland server and destroy the gbm device");
         if let Some(wlr_screencopy_manager) = self.wlr_screencopy_manager.as_mut() {
             wlr_screencopy_manager.destroy();
         }
@@ -112,8 +112,8 @@ impl Drop for Client {
 ///
 /// WlRegistry dispatch
 ///
-impl Dispatch<wl_registry::WlRegistry, ()> for Client {
-    fn event(state: &mut Self, registry: &wl_registry::WlRegistry, event: wl_registry::Event, _: &(), _: &Connection, eq_handle: &QueueHandle<Client>) {
+impl Dispatch<wl_registry::WlRegistry, ()> for Screencopy {
+    fn event(state: &mut Self, registry: &wl_registry::WlRegistry, event: wl_registry::Event, _: &(), _: &Connection, eq_handle: &QueueHandle<Screencopy>) {
         if let wl_registry::Event::Global { name, interface, version } = event {
             if interface == WlOutput::interface().name {
                 debug!("found output global");
@@ -134,7 +134,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Client {
 ///
 /// WlOutput dispatch
 ///
-impl Dispatch<wl_output::WlOutput, ()> for Client {
+impl Dispatch<wl_output::WlOutput, ()> for Screencopy {
     fn event(state: &mut Self, proxy: &wl_output::WlOutput, event: <wl_output::WlOutput as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         if let Some(info) = state.outputs.get_mut(proxy) {
             match event {
@@ -165,7 +165,6 @@ impl Dispatch<wl_output::WlOutput, ()> for Client {
 /// The CaptureSession struct holds the state of a capture session. It holds the requested dmabuf parameters, the screencopy frame,
 /// the linux buffer params and the buffer. It also holds a fail flag to indicate if any of the dispatches failed.
 ///
-#[derive(Debug)]
 pub struct CaptureSession {
     requested_dmabuf_params: Option<(u32, u32, u32)>, // fourcc, width, height
     screencopy_frame: Option<ZwlrScreencopyFrameV1>,
@@ -227,7 +226,7 @@ impl Drop for CaptureSession {
     }
 }
 
-impl Client {
+impl Screencopy {
 
     ///
     /// Capture the output of a session.
@@ -373,14 +372,14 @@ impl Dispatch<WlBuffer, ()> for CaptureSession {
 
 /// ZwpLinuxDmabufV1 dispatch
 /// (all events are deprecated)
-impl Dispatch<ZwpLinuxDmabufV1, ()> for Client {
+impl Dispatch<ZwpLinuxDmabufV1, ()> for Screencopy {
     fn event(_: &mut Self, _: &ZwpLinuxDmabufV1, _: <ZwpLinuxDmabufV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
     }
 }
 
 /// ZwlrScreencopyManagerV1 dispatch
 /// (there are no events)
-impl Dispatch<ZwlrScreencopyManagerV1, ()> for Client {
+impl Dispatch<ZwlrScreencopyManagerV1, ()> for Screencopy {
     fn event(_: &mut Self, _: &ZwlrScreencopyManagerV1, _: <ZwlrScreencopyManagerV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
     }
 }

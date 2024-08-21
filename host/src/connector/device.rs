@@ -29,11 +29,8 @@ impl Device {
     /// This function returns an error if the serial port could not be opened
     ///
     pub fn new(port: &PathBuf, baud_rate: u32, lengths: Vec<u16>) -> Result<Self, anyhow::Error> {
-        let serial = SerialPort::open(port, baud_rate).context("failed to open serial port")?;
-        debug!("opened serial port {:?}", port);
-
         Ok(Self {
-            serial,
+            serial: SerialPort::open(port, baud_rate).context("failed to open serial port")?,
             buffer: vec![0; lengths.iter().sum::<u16>() as usize * 3],
             lengths,
         })

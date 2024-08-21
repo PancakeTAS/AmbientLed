@@ -39,7 +39,6 @@ impl Strip {
     /// * `length` - Length of the strip
     ///
     pub fn new(length: u16) -> Self {
-        debug!("creating virtual strip with length {}", length);
         Self {
             mappings: Vec::new(),
             buffer: vec![0; length as usize * 3]
@@ -56,7 +55,6 @@ impl Strip {
     /// * `mapping` - Mapping of the strip
     ///
     pub fn map(&mut self, mapping: Mapping) {
-        debug!("mapping physical strip {} on device {} starting at offset {} with length {}", mapping.strip_id, mapping.device_id, mapping.offset, mapping.length);
         self.mappings.push(mapping);
     }
 

@@ -1,0 +1,65 @@
+# The connector connects a virtual array of colors into one or more physical LED strips, spread across one or more devices.
+connector:
+  devices: # Specify all physical devices that are connected to the system here
+    - id: 1
+      port: /dev/ttyACM0
+      baud_rate: 1000000
+      physical_strips: # Specify the length of each physical strip on the device
+        - leds: 88
+        - leds: 91
+  strips: # Specify all virtual strips that will be rendered to here
+    - id: 1
+      leds: 88
+      mappings: # Map the virtual strip to the physical strips here
+        - device_id: 1
+          physical_strip_idx: 0
+          offset: 0
+          length: 88
+    - id: 2
+      leds: 91
+      mappings: # More complex mappings can be achieved by specifying multiple mappings
+        - device_id: 1
+          physical_strip_idx: 1
+          offset: 0
+          length: 17
+        - device_id: 1
+          physical_strip_idx: 1
+          offset: 22
+          length: 48
+        - device_id: 1
+          physical_strip_idx: 1
+          offset: 75
+          length: 16
+
+# The screencopy manager captures a region of the screen and provides it as a DMABUF to the render pipeline
+screencopy:
+  gbm_device: /dev/dri/renderD128
+  capture_sessions:
+    - id: 1
+      output: DP-3 # Checks name, then description if available
+      region: # Specify the region of the screen to capture here (Note: virtual screen size, account for scaling!)
+        left: 0
+        top: 0
+        width: 2048
+        height: 120
+    - id: 2
+      output: DP-3
+      region:
+        left: 0
+        top: 1032
+        width: 2048
+        height: 120
+
+# The render pipeline renders the textures to the virtual strips using shaders
+render_pipeline:
+  programs:
+    - id: 1
+      fragment_shader: shaders/basic_fragment.glsl # Paths are relative to the config directory
+      vertex_shader: shaders/basic_vertex.glsl
+      capture_sessions: [1] # The will be used as input textures
+      strip_id: 1
+    - id: 2
+      fragment_shader: shaders/basic_fragment.glsl
+      vertex_shader: shaders/basic_vertex.glsl
+      capture_sessions: [2]
+      strip_id: 2
