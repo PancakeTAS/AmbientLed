@@ -1,6 +1,8 @@
-use std::{error::Error, ffi::CString, fs, path::PathBuf, ptr};
+use std::{ffi::CString, fs, path::PathBuf, ptr};
 
+use anyhow::{anyhow, Context};
 use gl::types::{GLchar, GLenum, GLuint};
+use log::{error, trace};
 
 use super::textures::Texture;
 
@@ -23,17 +25,26 @@ impl Shader {
     /// * `fragment_shader` - Path to the fragment shader
     /// * `tids` - Texture IDs (do not have to exist yet)
     ///
-    pub fn new(vertex_shader: &PathBuf, fragment_shader: &PathBuf, tids: &[u64]) -> Result<Self, Box<dyn Error>> {
+    /// # Errors
+    ///
+    /// This function will return an error if the shaders cannot be read or fail to compile/link
+    ///
+    pub fn new(vertex_shader: &PathBuf, fragment_shader: &PathBuf, tids: &[u64]) -> Result<Self, anyhow::Error> {
         // read shader source
-        let vertex_shader_source = fs::read_to_string(vertex_shader)?;
-        let fragment_shader_source = fs::read_to_string(fragment_shader)?;
+        let vertex_shader_source = fs::read_to_string(vertex_shader).context("failed to read vertex shader")?;
+        trace!("read vertex shader: {:?}", vertex_shader);
+        let fragment_shader_source = fs::read_to_string(fragment_shader).context("failed to read fragment shader")?;
+        trace!("read fragment shader: {:?}", fragment_shader);
 
         // compile shaders
-        let vertex_shader = unsafe { Shader::compile_shader(&vertex_shader_source, gl::VERTEX_SHADER) }?;
-        let fragment_shader = unsafe { Shader::compile_shader(&fragment_shader_source, gl::FRAGMENT_SHADER) }?;
+        let vertex_shader = unsafe { Shader::compile_shader(&vertex_shader_source, gl::VERTEX_SHADER).map_err(|e| anyhow!(e))? };
+        trace!("compiled vertex shader: id={}", vertex_shader);
+        let fragment_shader = unsafe { Shader::compile_shader(&fragment_shader_source, gl::FRAGMENT_SHADER).map_err(|e| anyhow!(e))? };
+        trace!("compiled fragment shader: id={}", fragment_shader);
 
         // create shader program
-        let id = unsafe { Shader::create_program(vertex_shader, fragment_shader) }?;
+        let id = unsafe { Shader::create_program(vertex_shader, fragment_shader).map_err(|e| anyhow!(e))? };
+        trace!("created shader program: id={}", id);
 
         // delete shaders
         unsafe {
@@ -45,7 +56,7 @@ impl Shader {
         unsafe {
             gl::UseProgram(id);
             for i in 0..tids.len() {
-                let c_texture_i = CString::new(format!("texture{}", i))?;
+                let c_texture_i = CString::new(format!("texture{}", i)).unwrap();
                 gl::Uniform1i(gl::GetUniformLocation(id, c_texture_i.as_ptr()), i as i32);
             }
             gl::UseProgram(0);
@@ -54,13 +65,15 @@ impl Shader {
         Ok(Self { id, tids: tids.to_vec() })
     }
 
-    unsafe fn compile_shader(source: &str, shader_type: GLenum) -> Result<GLuint, Box<dyn Error>> {
+    unsafe fn compile_shader(source: &str, shader_type: GLenum) -> Result<GLuint, &'static str> {
         // create shader object
         let shader = gl::CreateShader(shader_type);
-        if shader == 0 { return Err("failed to create shader object".into()); }
+        if shader == 0 {
+            return Err("failed to create shader object");
+        }
 
         // compile shader
-        let c_source = CString::new(source)?;
+        let c_source = CString::new(source).map_err(|_| "shader source contained null bytes")?;
         gl::ShaderSource(shader, 1, &c_source.as_ptr(), ptr::null());
         gl::CompileShader(shader);
 
@@ -72,17 +85,19 @@ impl Shader {
             gl::GetShaderiv(shader, gl::INFO_LOG_LENGTH, &mut len);
             let mut buffer = vec![0; len as usize];
             gl::GetShaderInfoLog(shader, len, ptr::null_mut(), buffer.as_mut_ptr() as *mut GLchar);
-            println!("{}", String::from_utf8(buffer.clone())?);
-            return Err(String::from_utf8(buffer)?.into());
+            error!("shader compile failed: {}", String::from_utf8(buffer).unwrap());
+            return Err("failed to compile shader");
         }
 
         Ok(shader)
     }
 
-    unsafe fn create_program(vertex_shader: GLuint, fragment_shader: GLuint) -> Result<GLuint, Box<dyn Error>> {
+    unsafe fn create_program(vertex_shader: GLuint, fragment_shader: GLuint) -> Result<GLuint, &'static str> {
         // create shader program
         let id = gl::CreateProgram();
-        if id == 0 { return Err("failed to create shader program".into()); }
+        if id == 0 {
+            return Err("failed to create shader program");
+        }
 
         // attach shaders
         gl::AttachShader(id, vertex_shader);
@@ -99,8 +114,8 @@ impl Shader {
             gl::GetProgramiv(id, gl::INFO_LOG_LENGTH, &mut len);
             let mut buffer = vec![0; len as usize];
             gl::GetProgramInfoLog(id, len, ptr::null_mut(), buffer.as_mut_ptr() as *mut GLchar);
-            println!("{}", String::from_utf8(buffer.clone())?);
-            return Err(String::from_utf8(buffer)?.into());
+            error!("shader program link failed: {}", String::from_utf8(buffer).unwrap());
+            return Err("failed to link shader program");
         }
 
         Ok(id)
@@ -114,7 +129,11 @@ impl Shader {
     /// * `textures` - The textures to bind
     ///
     pub fn bind(&self, textures: &Vec<&Texture>) {
-        if textures.len() != self.tids.len() { return; }
+        if textures.len() != self.tids.len() {
+            return;
+        }
+
+        trace!("bound shader program: {}", self.id);
         unsafe {
             gl::UseProgram(self.id);
             for (i, texture) in textures.iter().enumerate() {
@@ -132,7 +151,11 @@ impl Shader {
     /// * `textures` - The textures to unbind
     ///
     pub fn unbind(&self, textures: &Vec<&Texture>) {
-        if textures.len() != self.tids.len() { return; }
+        if textures.len() != self.tids.len() {
+            return;
+        }
+
+        trace!("unbound shader program: {}", self.id);
         unsafe {
             for (i, texture) in textures.iter().enumerate() {
                 gl::ActiveTexture(gl::TEXTURE0 + i as u32);
@@ -146,6 +169,9 @@ impl Shader {
 
 impl Drop for Shader {
     fn drop(&mut self) {
-        unsafe { gl::DeleteProgram(self.id); }
+        trace!("dropping shader program: id={}", self.id);
+        unsafe {
+            gl::DeleteProgram(self.id);
+        }
     }
 }

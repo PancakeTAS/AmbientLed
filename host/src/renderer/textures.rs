@@ -2,6 +2,7 @@ use std::{os::fd::{AsRawFd, OwnedFd}, ptr};
 
 use egls::{egl, EGLDisplay, EGLImageKHR};
 use gl::types::{GLenum, GLint, GLuint};
+use log::trace;
 
 ///
 /// OpenGL Texture
@@ -27,7 +28,11 @@ impl Texture {
     /// * `stride` - Stride of the dmabuf
     /// * `modifiers` - Modifiers of the dmabuf
     ///
-    pub fn new_from_dmabuf(dpy: EGLDisplay, dmabuf: OwnedFd, width: u32, height: u32, format: u32, offset: u32, stride: u32, modifiers: u64) -> Result<Self, Box<dyn std::error::Error>> {
+    /// # Errors
+    ///
+    /// This function will return an error if the egl image cannot be created from the dmabuf
+    ///
+    pub fn new_from_dmabuf(dpy: EGLDisplay, dmabuf: OwnedFd, width: u32, height: u32, format: u32, offset: u32, stride: u32, modifiers: u64) -> Result<Self, &'static str> {
         // create egl image from dmabuf
         let image = unsafe { egl2::CreateImageKHR(
             dpy,
@@ -48,11 +53,14 @@ impl Texture {
             ].as_ptr()
         )};
         if image == egl::NO_IMAGE_KHR {
-            return Err("failed to create image from dmabuf".into());
+            return Err("failed to create image from dmabuf");
         }
+        trace!("created egl image from dmabuf: image={:?}", image);
 
         // create texture from egl image
         let texture = unsafe { Texture::create_bound_texture(gl::TEXTURE_2D) };
+        trace!("created texture from egl image: texture={}", texture);
+
         unsafe {
             gl2::EGLImageTargetTexture2DOES(gl::TEXTURE_2D, image);
             gl::BindTexture(gl::TEXTURE_2D, 0);
@@ -64,8 +72,17 @@ impl Texture {
         })
     }
 
+    ///
+    /// Create a new Texture
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - Width of the texture
+    /// * `height` - Height of the texture
+    ///
     pub fn new(width: GLuint, height: GLuint) -> Self {
         let texture = unsafe { Texture::create_bound_texture(gl::TEXTURE_2D) };
+        trace!("created texture: texture={}", texture);
 
         unsafe {
             gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA as GLint, width as i32, height as i32, 0, gl::RGBA, gl::UNSIGNED_BYTE, std::ptr::null());
@@ -97,6 +114,7 @@ impl Texture {
     /// Bind the texture
     ///
     pub fn bind(&self) {
+        trace!("bound texture: {}", self.id);
         unsafe { gl::BindTexture(gl::TEXTURE_2D, self.id); }
     }
 
@@ -104,6 +122,7 @@ impl Texture {
     /// Unbind the texture
     ///
     pub fn unbind(&self) {
+        trace!("unbound texture: {}", self.id);
         unsafe { gl::BindTexture(gl::TEXTURE_2D, 0); }
     }
 
@@ -111,6 +130,7 @@ impl Texture {
 
 impl Drop for Texture {
     fn drop(&mut self) {
+        trace!("dropping texture: texture={} and image={:?}", self.id, self.image);
         unsafe {
             gl::DeleteTextures(1, &self.id);
             if let Some(image) = self.image {
@@ -123,7 +143,6 @@ impl Drop for Texture {
 ///
 /// Extensions to the egl module
 ///
-/// #[allow(non_camel_case_types)]
 #[allow(non_snake_case)]
 mod egl2 {
     use egls::{egl, EGLContext, EGLDisplay, EGLImageKHR, EGLenum};
