@@ -48,16 +48,20 @@ impl Screencopy {
     ///
     /// This will create a gbm device as well as a wayland connection and populate the wayland registry and outputs.
     ///
+    /// # Arguments
+    ///
+    /// * `gbm_device` - The path to the gbm device
+    ///
     /// # Errors
     ///
     /// This function will return an error if the drm device cannot be opened, the gbm device cannot be created,
     /// the wayland connection cannot be established, the required protocols are not present or if the registry roundtrip fails.
     ///
-    pub fn new() -> Result<Self, anyhow::Error> {
+    pub fn new(gbm_device: String) -> Result<Self, anyhow::Error> {
         // create the gbm device
-        let drm_device = File::open("/dev/dri/renderD128").context("failed to open drm device")?;
+        let drm_device = File::open(&gbm_device).context("failed to open drm device")?;
         let gbm = Device::new(drm_device).context("failed to create gbm device")?;
-        debug!("created gbm device: {:?}", "/dev/dri/renderD128");
+        debug!("created gbm device: {:?}", gbm_device);
 
         // create the wayland connection
         let wl = Connection::connect_to_env().context("failed to connect to wayland server")?;

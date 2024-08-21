@@ -1,7 +1,6 @@
 use std::{io, path::PathBuf};
 
 use anyhow::Context;
-use log::debug;
 use serial2::SerialPort;
 
 ///

@@ -18,7 +18,7 @@ fn main() -> Result<(), anyhow::Error> {
     let config = configuration::Configuration::new(&PathBuf::from("config.example.yml"))?;
 
     // initialize constructs
-    let mut screencopy = screencopy::Screencopy::new()?; // TODO: add gbm device
+    let mut screencopy = screencopy::Screencopy::new(config.screencopy.gbm_device.clone())?;
     let mut connector = connector::Connector::new();
     let mut render_pipeline = renderer::RenderPipeline::new(screencopy.get_display_id())?;
 
@@ -94,6 +94,7 @@ fn main() -> Result<(), anyhow::Error> {
 
     // start the render loop
     // FIXME: don't hardcode 30 fps
+    // FIXME: do proper error handling in the loop
     let frame_time = std::time::Duration::from_secs_f32(1.0 / 30.0);
     loop {
         let start = std::time::Instant::now();
