@@ -32,6 +32,7 @@ impl OutputInfo {
 pub struct Screencopy {
     wl: Connection,
     gbm: Device<File>,
+    sessions: HashMap<u64, CaptureSession>,
 
     // wayland objects
     pub outputs: HashMap<WlOutput, OutputInfo>,
@@ -71,7 +72,7 @@ impl Screencopy {
         wl.display().get_registry(&eq.handle(), ());
 
         let mut state = Screencopy {
-            wl, gbm,
+            wl, gbm, sessions: HashMap::new(),
             outputs: HashMap::new(),
             wlr_screencopy_manager: None, wp_linux_dmabuf: None
         };
@@ -90,6 +91,24 @@ impl Screencopy {
         }
 
         Ok(state)
+    }
+
+    ///
+    /// Set the capture session
+    ///
+    /// # Arguments
+    ///
+    /// - `id` - The id of the session
+    /// - `session` - The session to set
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the initial capture fails.
+    ///
+    pub fn set_capture_session(&mut self, id: u64, session: CaptureSession) -> Result<&gbm::BufferObject<()>, anyhow::Error> {
+        self.sessions.insert(id, session);
+        self.capture(id).context("initial capture failed")?;
+        Ok(self.sessions.get(&id).unwrap().buffer_object.as_ref().unwrap())
     }
 
     ///
@@ -204,15 +223,6 @@ impl CaptureSession {
         }
     }
 
-    ///
-    /// Get the dmabuf buffer
-    ///
-    /// Ensure a buffer is present by calling capture first.
-    ///
-    pub fn get_dmabuf(&self) -> Option<&BufferObject<()>> {
-        self.buffer_object.as_ref()
-    }
-
 }
 
 impl Drop for CaptureSession {
@@ -235,9 +245,17 @@ impl Screencopy {
     ///
     /// Capture the output of a session.
     ///
-    /// You may reuse the same session for multiple captures to skip the dmabuf creation.
+    /// # Arguments
     ///
-    pub fn capture(&mut self, session: &mut CaptureSession) -> Result<(), anyhow::Error> {
+    /// * `session` - The session to capture
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the session is not found, if the session is marked as failed or if the dmabuf capture is not supported.
+    /// It will also fail if any of the dispatches fail.
+    ///
+    pub fn capture(&mut self, session: u64) -> Result<(), anyhow::Error> {
+        let session = self.sessions.get_mut(&session).context("session not found")?;
         if session.fail {
             return Err(anyhow!("session is marked as failed"));
         }

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr};
 
 use anyhow::Context;
 use log::info;
@@ -51,7 +51,6 @@ fn main() -> Result<(), anyhow::Error> {
 
     // add capture sessions
     info!("creating capture sessions");
-    let mut sessions = HashMap::<u64, screencopy::CaptureSession>::new(); // FIXME: would be nice to store this in screencopy
     for session in &config.screencopy.capture_sessions {
         info!("creating capture session {} for output {} at {}, {} with size {}x{}", session.id, session.output, session.region.left, session.region.top, session.region.width, session.region.height);
 
@@ -65,19 +64,17 @@ fn main() -> Result<(), anyhow::Error> {
         }).context("output not found")?;
 
         // create the capture session
-        let mut capture_session = screencopy::CaptureSession::new(
+        let capture_session = screencopy::CaptureSession::new(
             output.0.clone(),
             session.region.left,
             session.region.top,
             session.region.width,
             session.region.height
         );
-        screencopy.capture(&mut capture_session)?;
+        let bo = screencopy.set_capture_session(session.id, capture_session)?;
 
         // set the render texture
-        render_pipeline.set_texture(session.id, capture_session.get_dmabuf().unwrap())?;
-
-        sessions.insert(session.id, capture_session);
+        render_pipeline.set_texture(session.id, bo)?;
     }
 
     // add programs
@@ -99,9 +96,9 @@ fn main() -> Result<(), anyhow::Error> {
     loop {
         let start = std::time::Instant::now();
 
-        // capture the screen
-        for session in sessions.values_mut() {
-            screencopy.capture(session)?;
+        // capture the screens
+        for session in &config.screencopy.capture_sessions {
+            screencopy.capture(session.id)?;
         }
 
         // render the strips
