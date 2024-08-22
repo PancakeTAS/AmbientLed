@@ -32,7 +32,7 @@ impl Connector {
     /// * `id` - Id of the device
     /// * `device` - Device
     ///
-    pub fn add_device(&mut self, id: u64, device: Device) {
+    pub fn set_device(&mut self, id: u64, device: Device) {
         self.devices.insert(id, device);
     }
 
@@ -44,7 +44,7 @@ impl Connector {
     /// * `id` - Id of the strip
     /// * `strip` - Strip
     ///
-    pub fn add_strip(&mut self, id: u64, strip: Strip) {
+    pub fn set_strip(&mut self, id: u64, strip: Strip) {
         self.strips.insert(id, strip);
     }
 
