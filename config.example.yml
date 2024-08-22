@@ -63,3 +63,6 @@ render_pipeline:
       vertex_shader: shaders/basic_vertex.glsl
       capture_sessions: [2]
       strip_id: 2
+
+fps: 60 # The target update frames per second
+log_level: debug

@@ -13,7 +13,11 @@ pub struct Configuration {
     /// Settings for screencopy
     pub screencopy: Screencopy,
     /// Settings for the render pipeline
-    pub render_pipeline: RenderPipeline
+    pub render_pipeline: RenderPipeline,
+    /// The frame rate of the application
+    pub fps: u32,
+    /// Log level (trace, debug, info, warn, error)
+    pub log_level: String
 }
 
 impl Configuration {

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf, str::FromStr};
 
 use anyhow::Context;
 use log::info;
@@ -9,13 +9,14 @@ mod screencopy;
 mod configuration;
 
 fn main() -> Result<(), anyhow::Error> {
-    // initialize the logger
-    colog::default_builder()
-        .filter_level(log::LevelFilter::Debug)
-        .init();
-
     // parse the configuration file
     let config = configuration::Configuration::new(&PathBuf::from("config.example.yml"))?;
+
+    // initialize the logger
+    let level = log::LevelFilter::from_str(&config.log_level).context("invalid log level")?;
+    colog::default_builder()
+        .filter_level(level)
+        .init();
 
     // initialize constructs
     let mut screencopy = screencopy::Screencopy::new(config.screencopy.gbm_device.clone())?;
@@ -93,9 +94,8 @@ fn main() -> Result<(), anyhow::Error> {
     }
 
     // start the render loop
-    // FIXME: don't hardcode 30 fps
     // FIXME: do proper error handling in the loop
-    let frame_time = std::time::Duration::from_secs_f32(1.0 / 30.0);
+    let frame_time = std::time::Duration::from_secs_f32(1.0 / (config.fps as f32));
     loop {
         let start = std::time::Instant::now();
 
