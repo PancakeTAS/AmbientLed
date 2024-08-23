@@ -97,3 +97,11 @@ To launch the program manually, run:
 ```sh
 systemctl --user start ambient-led
 ```
+## Version 2.x and earlier
+> [!CAUTION]
+> Older versions of ambient-led are hacked together and incredibly unstable. They are not recommended for use. I will not provide support for them.
+
+Version 2.x of ambient-led was written in C and didn't provide nearly as much customization as the current version. In fact, version 2.x was never even completed.
+However, if you rely on Raspberry Pi support and are running X11 with an NvFBC capable graphics card, you will have to go back to version 2.x. The last version of 2.x is available on [commit bb1fd31874c47c1f7a52085cd7b3c380832bccb5](https://github.com/PancakeTAS/ambient-led/commit/bb1fd31874c47c1f7a52085cd7b3c380832bccb5).
+
+Version 1.x of ambient-led was written in Java and supports both Windows and Linux, as well as Raspberry Pis. I do not recommend this version unless absolutely required! The last version of 1.x is available on [commit 3dc796d1e62794c94cd7260b27fa5f0da3e1eea5](https://github.com/PancakeTAS/ambient-led/tree/3dc796d1e62794c94cd7260b27fa5f0da3e1eea5).
