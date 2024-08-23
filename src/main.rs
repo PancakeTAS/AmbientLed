@@ -14,7 +14,7 @@ fn main() -> Result<(), anyhow::Error> {
     // parse command line arguments
     let cmd = Command::new("ambient-led")
         .about("ws2812b monitor backlight controller")
-        .version("0.1.0")
+        .version("3.0.0")
         .author("PancakeTAS")
         .arg(
             Arg::new("verbose")
