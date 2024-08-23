@@ -1,8 +1,6 @@
 // ========= PREPROCESSOR CONFIGURATION =========
 
 #define SERIAL_BAUD 1000000
-#define SERIAL_TIMEOUT 5000
-
 #define MAX_BRIGHTNESS 180
 
 #define STRIP1_LENGTH 88
@@ -12,6 +10,8 @@
 #define STRIP2_DATA 4
 
 // (do not change anything below this line)
+#define SERIAL_TIMEOUT 5000
+
 #ifdef STRIP1_LENGTH
     #ifdef STRIP2_LENGTH
         #ifdef STRIP3_LENGTH
