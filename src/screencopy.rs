@@ -277,6 +277,7 @@ impl Screencopy {
         let dmabuf_mgmt = self.wp_linux_dmabuf.as_ref().unwrap();
 
         // request output capture
+        session.fail = true;
         screencopy_mgmt.capture_output_region::<(), _>(0, output, session.x, session.y, session.width, session.height, &eq.handle(), ());
         eq.blocking_dispatch(session).context("create output capture roundtrip failed")?; // this will wait for the dispatches to finish
 
@@ -308,6 +309,7 @@ impl Screencopy {
                 }
 
                 // request wl_buffer
+                session.fail = false;
                 linux_buffer_params.create(width as i32, height as i32, fourcc, Flags::empty());
                 eq.blocking_dispatch(session).context("create wl buffer roundtrip failed")?;
 
@@ -324,6 +326,7 @@ impl Screencopy {
             };
 
         // copy the buffer
+        session.fail = true;
         screencopy_frame.copy(buffer);
         eq.blocking_dispatch(session).context("copy frame roundtrip failed")?; // this will wait for the dispatches to finish
 
@@ -350,10 +353,14 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for CaptureSession {
         // handle events
         match event {
             zwlr_screencopy_frame_v1::Event::LinuxDmabuf { format, width, height } => {
+                session.fail = false;
                 session.requested_dmabuf_params = Some((format, width, height));
             },
-            zwlr_screencopy_frame_v1::Event::Failed { } => {
+            zwlr_screencopy_frame_v1::Event::Failed => {
                 session.fail = true;
+            },
+            zwlr_screencopy_frame_v1::Event::Ready { .. } => {
+                session.fail = false;
             },
             _ => {}
         }
@@ -369,11 +376,12 @@ impl Dispatch<ZwpLinuxBufferParamsV1, ()> for CaptureSession {
         EVT_CREATE_BAR => (WlBuffer, ()),
     ]);
 
-    fn event(state: &mut Self, _: &ZwpLinuxBufferParamsV1, event: <ZwpLinuxBufferParamsV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+    fn event(session: &mut Self, _: &ZwpLinuxBufferParamsV1, event: <ZwpLinuxBufferParamsV1 as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         if let zwp_linux_buffer_params_v1::Event::Created { buffer } = event {
-            state.buffer = Some(buffer);
-        } else if let zwp_linux_buffer_params_v1::Event::Failed { } = event {
-            state.fail = true;
+            session.fail = false;
+            session.buffer = Some(buffer);
+        } else if let zwp_linux_buffer_params_v1::Event::Failed = event {
+            session.fail = true;
         }
     }
 }
