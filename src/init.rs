@@ -183,8 +183,9 @@ pub fn init(verbose: bool, frames: Option<&u32>, config: Option<&PathBuf>) -> Re
         // capture the screens
         for session in &config.screencopy.capture_sessions {
             let status = screencopy.capture(session.id);
-            if status.is_err() {
+            if status.is_err() { // capture session will occasionally fail when there's a lot of lag or monitors are being added/removed
                 warn!("failed to capture session {}: {:?}", session.id, status);
+                std::thread::sleep(std::time::Duration::from_secs(2)); // serial timeout is 5 seconds, so waiting here is fine in case the compositor is frozen
                 recreate_capture_session(session, &mut screencopy, &mut render_pipeline).context("failed to recreate capture session, panicking")?;
                 info!("recreated capture session {}", session.id);
             }
@@ -197,8 +198,9 @@ pub fn init(verbose: bool, frames: Option<&u32>, config: Option<&PathBuf>) -> Re
 
         // send the data to the devices
         let status = connector.write();
-        if status.is_err() {
+        if status.is_err() { // serial port seems to fail occasionally, not good, but we can recover
             warn!("failed to write to devices: {:?}", status);
+            std::thread::sleep(std::time::Duration::from_secs(2));
             for device in &config.connector.devices {
                 recreate_devices(device, &mut connector).context("failed to recreate device, panicking")?;
             }

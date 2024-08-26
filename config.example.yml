@@ -3,7 +3,7 @@ connector:
   devices: # Specify all physical devices that are connected to the system here
     - id: 1
       port: /dev/ttyACM0
-      baud_rate: 1000000
+      baud_rate: 500000
       physical_strips: # Specify the length of each physical strip on the device
         - leds: 88
         - leds: 91
