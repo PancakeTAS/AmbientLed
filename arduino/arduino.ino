@@ -1,7 +1,7 @@
 // ========= PREPROCESSOR CONFIGURATION =========
 
 #define SERIAL_BAUD 500000
-#define MAX_BRIGHTNESS 220
+#define MAX_BRIGHTNESS 240 // keep this at the maximum value your PSU can handle and do the rest in the shader
 
 #define STRIP1_LENGTH 88
 #define STRIP1_DATA 2

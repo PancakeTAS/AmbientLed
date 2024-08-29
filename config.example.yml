@@ -1,23 +1,48 @@
-# The connector connects a virtual array of colors into one or more physical LED strips, spread across one or more devices.
+# the first object you have to configure is the connector. it is responsible for
+# connecting to your arduino devices and mapping each physical led strip attached
+# to it to one or more virtual led strips. this way you can combine multiple
+# physical led strips into one virtual led strip, or even split one physical led
+# strip into multiple virtual led strips. the following example configures two
+# physical leds strips attached to one arduino device which are located at the
+# top and bottom of my monitor. the back of the monitor has two bumps for the
+# bottom led strip, therefore the bottom led strip is split into 3 parts to
+# skip the bumps. while this is just one of the endless configurations you can
+# achieve with the connector, it should give you a good idea of how it works.
+# (you could for example use a single physical led strip that goes around your
+# monitor and split it into four virtual strips, one for each side of the monitor)
 connector:
-  devices: # Specify all physical devices that are connected to the system here
+  # this is where all the arduino devices need to be entered.
+  # each device needs to have an id you can use to reference it later,
+  # the port the arduino is connected to and the baud rate it is using.
+  devices:
     - id: 1
-      port: /dev/ttyACM0
+      port: /dev/serial/by-path/pci-0000:02:00.0-usbv2-0:9:1.0 # you can also use /dev/ttyUSB or /dev/ttyACM, but this is more reliable as it's based on the physical position of the arduino
       baud_rate: 500000
-      physical_strips: # Specify the length of each physical strip on the device
-        - leds: 88
+      # and here you can specify the physical led strips attached to the arduino.
+      # for each strip only needs to specify the number of leds it has, as referencing
+      # it is done by index. the order in which the strips are entered here must be the same
+      # as in the .ino file compiled to the arduino.
+      physical_strips:
+        - leds: 88 # only the length of each physical strip is required, as the buffer requires them to be continuous
         - leds: 91
-  strips: # Specify all virtual strips that will be rendered to here
+  # this is where the virtual led strips are defined. each strip needs to have a length, an id
+  # and a list of mappings that specify which physical led strips are used to create the virtual strip.
+  # the mappings are applied in order, so make sure the length of the mappings adds up to the length of the virtual strip.
+  strips:
     - id: 1
       leds: 88
-      mappings: # Map the virtual strip to the physical strips here
+      # the mappings are specified here. in this case, 88 leds starting at 0 on the first physical strip of device 1
+      # are mapped to the virtual strip. this means that the entire first physical strip is used for the virtual strip.
+      mappings:
         - device_id: 1
           physical_strip_idx: 0
           offset: 0
           length: 88
     - id: 2
-      leds: 91
-      mappings: # More complex mappings can be achieved by specifying multiple mappings
+      leds: 81
+      # this time there's still only one physical strip, but it's split into three parts: [0, 17], [22, 48], [75, 16]
+      # meaning despite the physical strip having 91 leds, only 81 are used for the virtual strip.
+      mappings:
         - device_id: 1
           physical_strip_idx: 1
           offset: 0
@@ -31,16 +56,28 @@ connector:
           offset: 75
           length: 16
 
-# The screencopy manager captures a region of the screen and provides it as a DMABUF to the render pipeline
+# the next step is to configure the capture sessions. these are responsible for
+# capturing the screen and providing a texture of it into the render pipeline.
+# the following example configures two capture sessions, one for the top and one
+# for the bottom of the screen. the region specifies the area of the screen that
+# should be captured. please note that the area is specified by logical geometry
+# and not physical pixels. this means that if you have a 4k screen with 200% scaling,
+# the width and height should be 1920x1080 and not 3840x2160. in this example the
+# top capture session captures the top 120 pixels of the screen and the bottom
+# capture session captures the bottom 120 pixels of the screen (note: I am on a
+# 1440p display with 125% scaling.)
 screencopy:
-  gbm_device: /dev/dri/renderD128
+  gbm_device: /dev/dri/renderD128 # you don't need to change this unless you have multiple GPUs, in which case pick whichever one works
+  # the capture sessions are specified here. each session needs to have an id, an output
+  # and a region. the output specifies the screen that should be captured. it can be either
+  # the name or a part of the description of the screen as reported by your compositor.
   capture_sessions:
     - id: 1
-      output: DP-3 # Checks name, then description if available
-      region: # Specify the region of the screen to capture here (Note: virtual screen size, account for scaling!)
+      output: DP-3
+      region:
         left: 0
         top: 0
-        width: 2048
+        width: 2048 # 2048 * 1.25 = 2560, which is the width of my screen
         height: 120
     - id: 2
       output: DP-3
@@ -50,19 +87,30 @@ screencopy:
         width: 2048
         height: 120
 
-# The render pipeline renders the textures to the virtual strips using shaders
+# finally, the render pipeline needs to be configured. this is where the magic happens.
+# the render pipeline is responsible for rendering the final image that is sent to the
+# arduino devices. it's not so much of an image, it's more an array of colors, but think of it like an image.
+# the render pipeline combines a vertex and a fragment shader, as well as one or more capture sessions
+# to render to a framebuffer with a width of the virtual led strip and a height of 1. in this example
+# two programs are configured, one for the top and one for the bottom of the screen. both programs
+# use the same shaders, but different capture sessions and strip ids.
 render_pipeline:
+  # the programs are specified here. each program needs to have an id, a vertex shader, a fragment shader,
+  # a list of capture sessions and a strip id. the vertex and fragment shaders are located relative to the
+  # .config folder. you specify the capture sessions by their ids and the strip id by the id of the virtual
+  # led strip you want to render to. you can use multiple capture sessions at once, which will be available
+  # in the shader as uniform textureX, where X is the index of the capture session in the list.
   programs:
     - id: 1
-      fragment_shader: shaders/basic_fragment.glsl # Paths are relative to the config directory
-      vertex_shader: shaders/basic_vertex.glsl
+      vertex_shader: shaders/left_to_right.vert
+      fragment_shader: shaders/ws2812b.frag
       capture_sessions: [1] # The will be used as input textures
       strip_id: 1
     - id: 2
-      fragment_shader: shaders/basic_fragment.glsl
-      vertex_shader: shaders/basic_vertex.glsl
+      vertex_shader: shaders/left_to_right.vert
+      fragment_shader: shaders/ws2812b.frag
       capture_sessions: [2]
       strip_id: 2
 
-fps: 60 # The target update frames per second
-log_level: debug
+fps: 60
+log_level: debug # highly recommend changing to info after everything is working and launching with `-v` to track down issues with trace logs
