@@ -12,6 +12,8 @@ use super::textures::Texture;
 pub struct Shader {
     pub id: GLuint,
     pub tids: Vec<u64>,
+    start_time: std::time::Instant,
+    time_uniform: i32,
 }
 
 impl Shader {
@@ -53,16 +55,23 @@ impl Shader {
         }
 
         // set uniform locations
-        unsafe {
+        let time_uniform = unsafe {
             gl::UseProgram(id);
             for i in 0..tids.len() {
                 let c_texture_i = CString::new(format!("texture{}", i)).unwrap();
                 gl::Uniform1i(gl::GetUniformLocation(id, c_texture_i.as_ptr()), i as i32);
             }
-            gl::UseProgram(0);
-        }
 
-        Ok(Self { id, tids: tids.to_vec() })
+            let c_time = CString::new("time").unwrap();
+            let time_uniform = gl::GetUniformLocation(id, c_time.as_ptr());
+
+            gl::UseProgram(0);
+
+            time_uniform
+        };
+
+        let start_time = std::time::Instant::now();
+        Ok(Self { id, tids: tids.to_vec(), start_time, time_uniform })
     }
 
     unsafe fn compile_shader(source: &str, shader_type: GLenum) -> Result<GLuint, &'static str> {
@@ -140,6 +149,9 @@ impl Shader {
                 gl::ActiveTexture(gl::TEXTURE0 + i as u32);
                 texture.bind();
             }
+
+            let time = self.start_time.elapsed().as_secs_f32();
+            gl::Uniform1f(self.time_uniform, time);
         }
     }
 
