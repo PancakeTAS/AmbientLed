@@ -164,12 +164,19 @@ impl RenderPipeline {
         framebuffer.unbind();
     }
 
+    ///
+    /// Reset the pipeline
+    ///
+    pub fn reset(&mut self) {
+        self.textures.clear();
+        self.shader_program.clear();
+    }
+
 }
 
 impl Drop for RenderPipeline {
     fn drop(&mut self) {
         debug!("dropping render pipeline, this will destroy all gl objects as well as the egl environment");
-        self.vertex_array.as_ref().unwrap().unbind();
         self.textures.clear();
         self.shader_program.clear();
         self.vertex_array = None;

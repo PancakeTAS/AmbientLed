@@ -9,6 +9,7 @@ use log::trace;
 ///
 pub struct Texture {
     pub id: GLuint,
+    pub dpy: Option<EGLDisplay>, // optional egl display
     pub image: Option<EGLImageKHR> // optional backing egl image
 }
 
@@ -68,6 +69,7 @@ impl Texture {
 
         Ok(Texture {
             id: texture,
+            dpy: Some(dpy),
             image: Some(image)
         })
     }
@@ -91,6 +93,7 @@ impl Texture {
 
         Texture {
             id: texture,
+            dpy: None,
             image: None
         }
     }
@@ -134,7 +137,7 @@ impl Drop for Texture {
         unsafe {
             gl::DeleteTextures(1, &self.id);
             if let Some(image) = self.image {
-                egl2::DestroyImageKHR(egl::GetDisplay(egl::DEFAULT_DISPLAY), image);
+                egl2::DestroyImageKHR(self.dpy.unwrap(), image);
             }
         }
     }

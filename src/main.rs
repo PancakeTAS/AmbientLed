@@ -44,9 +44,11 @@ fn main() -> Result<(), anyhow::Error> {
 
     // launch the application
     let matches = cmd.get_matches();
-    Ok(init::init(
+    init::init(
         matches.get_flag("verbose"),
         matches.get_one("frames"),
         matches.get_one("config"),
-    ).context("application main failed")?)
+    ).context("application main failed")?;
+
+    Ok(())
 }

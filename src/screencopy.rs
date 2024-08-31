@@ -118,11 +118,19 @@ impl Screencopy {
         self.wl.display().id()
     }
 
+    ///
+    /// Reset the screencopy
+    ///
+    pub fn reset(&mut self) {
+        self.sessions.clear();
+    }
+
 }
 
 impl Drop for Screencopy {
     fn drop(&mut self) {
-        debug!("closing Screencopy, this will disconnect from the wayland server and destroy the gbm device");
+        debug!("closing screencopy, this will disconnect from the wayland server and destroy the gbm device");
+        self.reset();
         if let Some(wlr_screencopy_manager) = self.wlr_screencopy_manager.as_mut() {
             wlr_screencopy_manager.destroy();
         }

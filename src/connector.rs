@@ -87,4 +87,12 @@ impl Connector {
         Ok(())
     }
 
+    ///
+    /// Reset the connector
+    ///
+    pub fn reset(&mut self) {
+        self.devices.clear();
+        self.strips.clear();
+    }
+
 }
