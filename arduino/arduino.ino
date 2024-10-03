@@ -41,6 +41,8 @@
 
 struct CRGB leds[BUFFER_LENGTH]; //!< buffer for all leds
 
+int timeout_steps = 0; //!< timeout animation counter
+
 void setup() {
     // init serial
     Serial.begin(SERIAL_BAUD);
@@ -70,9 +72,24 @@ void setup() {
 }
 
 void loop() {
+    // try to read the leds
     int i = Serial.readBytes((char*) leds, BUFFER_LENGTH * 3);
+    // check if data was fully read
     if (i != BUFFER_LENGTH * 3) {
-        memset(leds, 0, BUFFER_LENGTH * 3);
+        // if not, start timeout animation
+        if (!timeout_steps) {
+            Serial.setTimeout(30);
+            FastLED.setCorrection(CRGB(255, 0, 0));
+        }
+
+        // timeout animation
+        timeout_steps++;
+        memset(leds, (sin(timeout_steps * 0.025) + 1) / 2 * 220 + 20, BUFFER_LENGTH * 3);
+    } else if (timeout_steps) {
+        // otherwise reset timeout counter
+        Serial.setTimeout(SERIAL_TIMEOUT);
+        FastLED.setCorrection(CRGB(255, 255, 255));
+        timeout_steps = 0;
     }
 
     FastLED.show();
